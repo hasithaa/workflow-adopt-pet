@@ -1,0 +1,8 @@
+[package]
+org = "hasitha"
+name = "demo250626"
+version = "0.1.0"
+distribution = "2201.13.2"
+
+[build-options]
+observabilityIncluded = true

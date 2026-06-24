@@ -1,0 +1,2 @@
+workflowCallbackUrl = "http://localhost:8080/adoption/branch-ready"
+confirmationDelaySeconds = 30
