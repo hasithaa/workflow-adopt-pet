@@ -281,7 +281,7 @@ public type ShelterAdminReview record {|
 |};
 
 // HumanTask completion (output)
-public type ShelterAdmin record {|
+public type ShelterAdminResponse record {|
     boolean approved;
     int orderId;
     string comment;
