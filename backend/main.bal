@@ -1,8 +1,8 @@
 import ballerina/http;
+import ballerina/io;
 import ballerina/log;
-import ballerina/lang.runtime as runtime;
+import ballerina/lang.runtime;
 
-configurable string workflowCallbackUrl = "http://localhost:8080/adoption/branch-ready";
 configurable int confirmationDelaySeconds = 30;
 
 listener http:Listener petsListener = new (9001);
@@ -25,12 +25,11 @@ type PetSearchResponse record {|
 |};
 
 type SubmitAdoptionRequest record {| 
-    string orderId;
-    string referenceID;
+    string requestId;
+    string callbackId;
     int selectedPetId;
     string selectedPetName;
     string pickupPreference;
-    string? requestId;
     string? callbackUrl;
     int? confirmationDelaySeconds;
 |};
@@ -40,9 +39,8 @@ type AdoptionRequestAccepted record {|
 |};
 
 type AdoptionRequestContext record {| 
-    string referenceID;
+    string callbackId;
     string requestId;
-    int orderId;
     int petId;
     string petName;
 |};
@@ -50,7 +48,6 @@ type AdoptionRequestContext record {|
 type BranchReadyNotification record {| 
     string eventType;
     string referenceID;
-    int orderId;
     string requestId;
     int petId;
     string petName;
@@ -74,15 +71,18 @@ type NotificationResponse record {|
 final Pet[] pets = [
     {id: 2001, name: "Luna", status: "available", category: "Dogs", price: 125.50},
     {id: 2002, name: "Milo", status: "available", category: "Dogs", price: 99.99},
-    {id: 2003, name: "Kiwi", status: "pending", category: "Birds", price: 49.50}
+    {id: 2003, name: "Kiwi", status: "pending", category: "Birds", price: 49.50},
+    {id: 2004, name: "Lily", status: "available", category: "Cats", price: 110.00},
+    {id: 2005, name: "Oreo", status: "available", category: "Cats", price: 95.00}
 ];
 
 service /api/v1 on petsListener {
     resource function get pets(string status = "available", string? category = ()) returns PetSearchResponse {
         Pet[] matchingPets = [];
+        string? normalizedInputCategory = normalizeCategory(category);
         foreach Pet pet in pets {
             boolean matchesStatus = pet.status == status;
-            boolean matchesCategory = category is string ? pet.category == category : true;
+            boolean matchesCategory = normalizedInputCategory is string ? normalizeCategory(pet.category) == normalizedInputCategory : true;
             if matchesStatus && matchesCategory {
                 matchingPets.push(pet);
             }
@@ -98,29 +98,34 @@ service /api/v1 on petsListener {
     }
 }
 
-service /api/v1 on ordersListener {
-    resource function post adoption\-requests(@http:Payload SubmitAdoptionRequest request) returns AdoptionRequestAccepted|http:InternalServerError {
-        int|error orderIdValue = 'int:fromString(request.orderId);
-        if orderIdValue is error {
-            log:printError("Invalid orderId received in adoption request", 'error = orderIdValue);
-            return <http:InternalServerError>{body: {message: "Invalid orderId"}};
-        }
+isolated function normalizeCategory(string? category) returns string? {
+    if category is () {
+        return ();
+    }
 
-        int orderId = orderIdValue;
-        string requestId = request.requestId ?: request.referenceID;
+    string c = category.toLowerAscii().trim();
+    if c == "dog" || c == "dogs" {
+        return "dog";
+    }
+    if c == "cat" || c == "cats" {
+        return "cat";
+    }
+
+    return c;
+}
+
+service /api/v1 on ordersListener {
+    resource function post adoption\-requests(@http:Payload SubmitAdoptionRequest request) returns AdoptionRequestAccepted {
         AdoptionRequestContext context = {
-            referenceID: request.referenceID,
-            requestId: requestId,
-            orderId: orderId,
+            callbackId: request.callbackId,
+            requestId: request.requestId,
             petId: request.selectedPetId,
             petName: request.selectedPetName
         };
 
-        string callbackUrl = request.callbackUrl ?: workflowCallbackUrl;
+        string? callbackUrl = request.callbackUrl;
         int delaySeconds = request.confirmationDelaySeconds ?: confirmationDelaySeconds;
-        _ = start sendBranchReadyNotification(callbackUrl, delaySeconds, context);
-
-        log:printInfo(string `Submitted adoption request for reference ${request.referenceID}. Scheduled branch-ready callback to ${callbackUrl}`);
+        _ = start printBranchReadyInstructions(callbackUrl, delaySeconds, context);
         return {status: 201};
     }
 }
@@ -135,26 +140,34 @@ service /api/v1 on notificationsListener {
     }
 }
 
-isolated function sendBranchReadyNotification(string callbackUrl, int delaySeconds, AdoptionRequestContext adoptionRequest) returns error? {
+isolated function printBranchReadyInstructions(string? callbackUrl, int delaySeconds, AdoptionRequestContext adoptionRequest) {
+
     int remainingSeconds = delaySeconds;
     while remainingSeconds > 0 {
-        log:printInfo(string `Sending branch-ready notification for request ${adoptionRequest.requestId} in ${remainingSeconds}s to ${callbackUrl}`);
+        log:printInfo(string `Branch preparing request ${adoptionRequest.requestId} (${adoptionRequest.petName}); callback instructions in ${remainingSeconds}s`);
         runtime:sleep(1.0);
         remainingSeconds -= 1;
     }
 
     BranchReadyNotification payload = {
         eventType: "adoption.order.branch.ready",
-        referenceID: adoptionRequest.referenceID,
-        orderId: adoptionRequest.orderId,
+        referenceID: adoptionRequest.callbackId,
         requestId: adoptionRequest.requestId,
         petId: adoptionRequest.petId,
         petName: adoptionRequest.petName,
         status: "READY_FOR_PICKUP"
     };
 
-    log:printInfo(string `Sending branch-ready notification for reference ${adoptionRequest.referenceID} to ${callbackUrl}`);
-    http:Client callbackClient = check new (callbackUrl);
-    http:Response response = check callbackClient->post("", payload);
-    log:printInfo(string `Workflow callback completed with status ${response.statusCode}`);
+    string callbackTarget = callbackUrl ?: string `http://localhost:9080/workflow/Bookings/${adoptionRequest.callbackId}`;
+    string payloadJson = payload.toJsonString();
+    io:println("");
+    io:println("────────────────────────────────────────────────────────────────────");
+    io:println(string `  SHELTER WORKER ACTION — request ${adoptionRequest.requestId} (${adoptionRequest.petName}) is ready for pickup.`);
+    io:println("  Invoke the Step 6 callback service with this payload to resume the workflow run:");
+    io:println(string `  Callback HTTP service: POST ${callbackTarget}  (body: BookingCallback)`);
+    io:println(string `      curl -X POST '${callbackTarget}' -H 'Content-Type: application/json' -d '${payloadJson}'`);
+    io:println("────────────────────────────────────────────────────────────────────");
+    io:println(payloadJson);
+    io:println("────────────────────────────────────────────────────────────────────");
+    io:println("");
 }

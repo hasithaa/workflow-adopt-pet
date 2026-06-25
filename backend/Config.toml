@@ -1,2 +1,2 @@
-workflowCallbackUrl = "http://localhost:8080/adoption/branch-ready"
+# Delay before backend prints the branch-ready callback curl command.
 confirmationDelaySeconds = 30
