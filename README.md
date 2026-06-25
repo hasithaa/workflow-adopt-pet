@@ -22,8 +22,9 @@ This document describes the workflow as 7 steps:
 
 1. Start
 2. Find Available Pets
-3. HumanTask Select Pet (by Shop)
-5. HumanTask Adoption Request (by Shelter)
+3. HumanTask: Select Pet (by the Shop)
+4. HumanTask: Review Adoption Request (by the Shelter)
+5. Send to Adoptation Request 
 6. Wait For Branch Ready HTTP Callback
 7. End
 
@@ -35,12 +36,13 @@ flowchart TD
   A -->|Pets found| B[Step 3: HumanTask Select Pet<br/>Roles = abc_shop, pqr_shop]
   A -->|No pets found| Z1[Step 7: End<br/>Status = NO_PETS_FOUND]
 
-  B -->|Pet selected| C[Step 4: Send Adoption Request To Shelter<br/>POST localhost:9002/api/v1/adoption-requests]
+  B -->|Pet selected| C[Step 4: HumanTask Review Adoption Request<br/>Role = shelter_admin]
   B -->|No selection| Z2[Step 7: End<br/>Status = NO_PET_SELECTED]
 
-  C --> D[Step 5: HumanTask Approve Adoption Request<br/>Role = shelter_admin]
-  D -->|Approved| E[Step 6: Wait For Branch Ready HTTP Callback<br/>shelter_worker invokes callback URL]
-  D -->|Rejected| Z3[Step 7: End<br/>Status = SHELTER_REJECTED]
+  C -->|Approved| D[Step 5: Send to Adoptation Request<br/>POST localhost:9002/api/v1/adoption-requests]
+  C -->|Rejected| Z3[Step 7: End<br/>Status = SHELTER_REJECTED]
+
+  D --> E[Step 6: Wait For Branch Ready HTTP Callback<br/>shelter_worker invokes callback URL]
 
   E -->|Callback received| G[Step 7: End<br/>Status = COMPLETED]
   E -->|Timeout| Z4[Step 7: End<br/>Status = BRANCH_CALLBACK_TIMEOUT]
