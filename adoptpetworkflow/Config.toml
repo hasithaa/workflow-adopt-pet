@@ -1,0 +1,4 @@
+[ballerina.workflow.management]
+enableManagementApi = true
+port              = 8234
+enableBasicAuth   = false
